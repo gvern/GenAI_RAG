@@ -1,4 +1,5 @@
 # Import des bibliothèques nécessaires
+import os
 import gradio as gr
 from docx import Document
 import PyPDF2
