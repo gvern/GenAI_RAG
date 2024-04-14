@@ -1,46 +1,47 @@
 import gradio as gr
-from transformers import pipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import os
 
-def load_model(model_name, device):
-    """
-    Charge un modèle Hugging Face spécifié par l'utilisateur et le configure pour l'utilisation.
-    """
-    device_index = 0 if device == "GPU" else -1  # Utilise GPU si disponible et demandé, sinon CPU
-    nlp_pipeline = pipeline("text-classification", model=model_name, device=device_index)
-    return nlp_pipeline
+def load_model_from_hf(model_id, api_key):
+    try:
+        # Configuration des clés API
+        os.environ["HF_HOME"] = ".cache/huggingface"
+        os.environ["TRANSFORMERS_CACHE"] = ".cache/huggingface/transformers"
+        os.environ["HF_DATASETS_CACHE"] = ".cache/huggingface/datasets"
+        os.environ["HF_METRICS_CACHE"] = ".cache/huggingface/metrics"
+        os.environ["HF_API_TOKEN"] = api_key
 
-def classify_text(model_pipeline, text):
-    """
-    Utilise la pipeline de classification de texte pour prédier la classe d'un texte donné.
-    """
-    predictions = model_pipeline(text)
-    return str(predictions)
+        # Chargement du modèle et du tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        model = AutoModelForCausalLM.from_pretrained(model_id)
+        return f"Modèle chargé avec succès : {model_id}"
+    except Exception as e:
+        return f"Erreur lors du chargement du modèle : {str(e)}"
 
-# Liste de modèles Hugging Face disponibles pour la sélection
-models = [
-    "distilbert-base-uncased",
-    "bert-base-uncased",
-    "gpt2"
-]
+def load_model_from_local(file_info):
+    # Simulé: Chargement d'un modèle local
+    return f"Modèle local chargé: {file_info['name']}"
 
-with gr.Blocks() as model_app:
+with gr.Blocks() as app:
     with gr.Row():
-        gr.Markdown("Sélection du modèle et classification de texte")
-    
-    with gr.Row():
-        model_name = gr.Dropdown(label="Choisissez un modèle Hugging Face", choices=models, value=models[0])
-        device = gr.Radio(choices=["CPU", "GPU"], label="Exécuter sur", value="CPU")
-    
-    with gr.Row():
-        text_input = gr.Textbox(label="Texte à classifier")
-        classify_button = gr.Button("Classer le texte")
-        output = gr.Textbox(label="Résultat de la classification")
-    
-    def update_and_classify(model_name, device, text):
-        model_pipeline = load_model(model_name, device)
-        return classify_text(model_pipeline, text)
+        gr.Markdown("### Configuration du Modèle LLM")
 
-    classify_button.click(fn=update_and_classify, inputs=[model_name, device, text_input], outputs=output)
+    with gr.Row():
+        model_id_input = gr.Textbox(label="Identifiant du modèle Hugging Face")
+        api_key_input = gr.Textbox(label="Clé API Hugging Face", type="password")
+        load_button = gr.Button("Charger le modèle")
+        status_label = gr.Label()
 
-if __name__ == "__main__":
-    model_app.launch()
+    load_button.click(load_model_from_hf, inputs=[model_id_input, api_key_input], outputs=status_label)
+
+    with gr.Row():
+        local_file = gr.File(label="Choisir un modèle sur PC", type="binary")
+        local_load_button = gr.Button("Charger le modèle local")
+        local_status_label = gr.Label()
+
+    local_load_button.click(load_model_from_local, inputs=[local_file], outputs=local_status_label)
+
+    with gr.Row():
+        compute_resource = gr.Radio(label="Choisir la ressource de calcul", choices=["CPU", "GPU"], value="CPU")
+
+app.launch()
