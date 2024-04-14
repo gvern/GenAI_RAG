@@ -1,33 +1,47 @@
 import re
 import os
 import gradio as gr
-import pdfplumber
 from docx import Document
 from io import BytesIO
 import nltk
-from nltk.tokenize import word_tokenize, sent_tokenize
+from nltk.tokenize import word_tokenize
+import PyPDF2
 
 nltk.download('punkt')
 
-def extract_text_from_docx(file_content):
-    document = Document(BytesIO(file_content))
-    return "\n".join(paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip())
+def guess_file_type_by_content(file_content):
+    if file_content.startswith(b'%PDF-'):
+        return 'pdf'
+    elif file_content[0:4] == b'PK\x03\x04':  # DOCX files start with PK
+        return 'docx'
+    return 'unknown'
 
 def extract_text_from_pdf(file_content):
-    text = []
-    with pdfplumber.open(BytesIO(file_content)) as pdf:
-        for page in pdf.pages:
-            current_text = page.extract_text() or ""
-            text.append(current_text.replace('\n', ' '))
-    return "\n".join(text)
+    with BytesIO(file_content) as pdf_file:
+        reader = PyPDF2.PdfReader(pdf_file)
+        text = []
+        for page in range(len(reader.pages)):
+            page_text = reader.pages[page].extract_text()
+            if page_text:
+                text.append(page_text.replace('\n', ' '))  # Cleaning up text extraction
+        return "\n".join(text)
+
+def extract_text_from_docx(file_content):
+    document = Document(BytesIO(file_content))
+    extracted_text = "\n".join(paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip())
+    print("DOCX Text Extraction Complete")  # Debug print
+    return extracted_text
 
 def chunk_text_by_words(text, chunk_size):
     words = word_tokenize(text)
     chunks = [" ".join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
+    print("Chunking by Words Complete")  # Debug print
     return chunks
 
 def fixed_size_chunking(text, size):
-    return [text[i:i+size] for i in range(0, len(text), size)]
+    chunks = [text[i:i+size] for i in range(0, len(text), size)]
+    print("Fixed Size Chunking Complete")  # Debug print
+    return chunks
 
 def recursive_chunking(text, size, separators):
     if not separators:
@@ -40,12 +54,15 @@ def recursive_chunking(text, size, separators):
             refined_chunks.extend(recursive_chunking(chunk, size, separators[1:]))
         else:
             refined_chunks.append(chunk)
+    print("Recursive Chunking Complete")  # Debug print
     return refined_chunks
 
 def content_aware_chunking(text, size):
     code_chunks = re.split(r'```python\n.*?\n```', text, flags=re.DOTALL)
     markdown_chunks = re.split(r'#{1,6} .*', text)
-    return code_chunks if len(''.join(code_chunks)) < len(''.join(markdown_chunks)) else markdown_chunks
+    selected_chunks = code_chunks if len(''.join(code_chunks)) < len(''.join(markdown_chunks)) else markdown_chunks
+    print("Content Aware Chunking Complete")  # Debug print
+    return selected_chunks
 
 def chunk_text(text, chunk_size, algorithm='Level 1: Fixed-size'):
     if algorithm == 'en mots':
@@ -69,14 +86,15 @@ def process_chunking(file_info, chunk_size, overlap, algorithm, output_path):
     try:
         file_data = file_info[0] if isinstance(file_info, list) else file_info
         file_content = file_data if isinstance(file_data, bytes) else file_data.get("content")
-        file_name = "uploaded_file" if isinstance(file_data, bytes) else file_data.get("name")
+        file_name = "output" if isinstance(file_data, bytes) else file_data.get("name")
 
-        if file_name.endswith('.docx'):
+        file_type = guess_file_type_by_content(file_content)
+        if file_type == 'docx':
             text = extract_text_from_docx(file_content)
-        elif file_name.endswith('.pdf'):
+        elif file_type == 'pdf':
             text = extract_text_from_pdf(file_content)
         else:
-            text = file_content.decode('utf-8', errors='ignore')
+            return f"Format de fichier non pris en charge: {file_type}"
 
         chunks = chunk_text(text, chunk_size, algorithm)
         if not os.path.exists(output_path):
@@ -85,6 +103,7 @@ def process_chunking(file_info, chunk_size, overlap, algorithm, output_path):
         output_file_path = os.path.join(output_path, output_file_name)
         with open(output_file_path, 'w', encoding='utf-8') as output_file:
             output_file.write("\n\n---\n\n".join(chunks))
+        print("Output file written successfully")  # Debug print
         return f"Chunking terminé avec succès. Résultat sauvegardé à : {output_file_path}"
     except Exception as e:
         return f"Une erreur est survenue lors du traitement du fichier : {str(e)}"
